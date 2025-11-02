@@ -47,7 +47,8 @@ yarn-error.log*
 *.xls
 data/
 uploads/
-backend/csv_data/
+backend/csv_data/*
+!backend/csv_data/README.md
 backend/*.db
 
 # Testing
