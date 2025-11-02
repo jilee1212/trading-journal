@@ -10,6 +10,8 @@ import { TradesTable } from '@/lib/components/trades-table';
 import { Stats, ChartData, Position } from '@/lib/types';
 import { TrendingUp, Activity, Target, DollarSign, AlertCircle } from 'lucide-react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [chartData, setChartData] = useState<ChartData | null>(null);
@@ -23,21 +25,21 @@ export default function Dashboard() {
 
     try {
       // Fetch stats
-      const statsResponse = await fetch('http://localhost:8000/api/stats');
+      const statsResponse = await fetch(`${API_URL}/api/stats`);
       if (statsResponse.ok) {
         const statsData = await statsResponse.json();
         setStats(statsData);
       }
 
       // Fetch chart data
-      const chartResponse = await fetch('http://localhost:8000/api/chart-data');
+      const chartResponse = await fetch(`${API_URL}/api/chart-data`);
       if (chartResponse.ok) {
         const chartDataResponse = await chartResponse.json();
         setChartData(chartDataResponse);
       }
 
       // Fetch positions
-      const positionsResponse = await fetch('http://localhost:8000/api/positions?limit=1000');
+      const positionsResponse = await fetch(`${API_URL}/api/positions?limit=1000`);
       if (positionsResponse.ok) {
         const positionsData = await positionsResponse.json();
         setPositions(positionsData.positions);

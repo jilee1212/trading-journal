@@ -8,23 +8,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 import pandas as pd
 import io
+import os
+from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+from database import TradingDatabase
 
 app = FastAPI(title="Trading Journal API")
 
 # CORS middleware for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "https://*.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# In-memory storage (replace with database in production)
-positions_data: List[Dict[str, Any]] = []
-trades_data: List[Dict[str, Any]] = []
+# Database instance
+db = TradingDatabase()
+
+# CSV folder path (configurable via environment variable)
+CSV_FOLDER = os.getenv("CSV_FOLDER_PATH", "./csv_data")
 
 
 def parse_binance_csv(df: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -451,12 +456,19 @@ async def upload_file(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Unsupported file type. Use CSV or Excel.")
 
         # Parse positions
-        global positions_data
-        positions_data = parse_binance_csv(df)
+        positions = parse_binance_csv(df)
+
+        # Save to database
+        new_positions = 0
+        for position in positions:
+            if db.insert_position(position):
+                new_positions += 1
 
         return {
             "message": "File processed successfully",
-            "trades_processed": len(positions_data),
+            "trades_processed": len(positions),
+            "new_positions": new_positions,
+            "duplicates_skipped": len(positions) - new_positions,
         }
 
     except Exception as e:
@@ -466,22 +478,115 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/api/stats")
 def get_stats():
     """Get trading statistics"""
-    return calculate_stats(positions_data)
+    positions = db.get_all_positions()
+    return calculate_stats(positions)
 
 
 @app.get("/api/chart-data")
 def get_chart_data():
     """Get chart data"""
-    return calculate_chart_data(positions_data)
+    positions = db.get_all_positions()
+    return calculate_chart_data(positions)
 
 
 @app.get("/api/positions")
 def get_positions(limit: int = 100, offset: int = 0):
     """Get positions list"""
+    positions = db.get_all_positions(limit=limit, offset=offset)
+    total = db.get_total_positions_count()
     return {
-        "positions": positions_data[offset:offset + limit],
-        "total": len(positions_data),
+        "positions": positions,
+        "total": total,
     }
+
+
+@app.post("/api/scan-folder")
+async def scan_folder(folder_path: str = None):
+    """Scan a folder for CSV files and process all new files"""
+    try:
+        path = folder_path or CSV_FOLDER
+
+        # Create folder if it doesn't exist
+        Path(path).mkdir(parents=True, exist_ok=True)
+
+        # Find all CSV and Excel files
+        csv_files = list(Path(path).glob("*.csv"))
+        excel_files = list(Path(path).glob("*.xlsx")) + list(Path(path).glob("*.xls"))
+        all_files = csv_files + excel_files
+
+        if not all_files:
+            return {
+                "message": f"No CSV or Excel files found in {path}",
+                "processed": 0,
+                "skipped": 0,
+                "total_positions": 0,
+            }
+
+        processed = 0
+        skipped = 0
+        total_new_positions = 0
+
+        for file_path in all_files:
+            filename = file_path.name
+
+            # Skip if already processed
+            if db.is_file_processed(filename):
+                skipped += 1
+                continue
+
+            try:
+                # Read and parse file
+                if filename.endswith('.csv'):
+                    df = pd.read_csv(file_path)
+                else:
+                    df = pd.read_excel(file_path)
+
+                positions = parse_binance_csv(df)
+
+                # Save to database
+                new_positions = 0
+                for position in positions:
+                    if db.insert_position(position):
+                        new_positions += 1
+
+                # Mark file as processed
+                db.mark_file_processed(filename, str(file_path), len(positions))
+
+                processed += 1
+                total_new_positions += new_positions
+
+            except Exception as e:
+                print(f"Error processing {filename}: {str(e)}")
+                continue
+
+        return {
+            "message": f"Folder scan complete",
+            "processed": processed,
+            "skipped": skipped,
+            "total_files": len(all_files),
+            "new_positions": total_new_positions,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error scanning folder: {str(e)}")
+
+
+@app.get("/api/processed-files")
+def get_processed_files():
+    """Get list of processed files"""
+    return {
+        "files": db.get_processed_files()
+    }
+
+
+@app.delete("/api/clear")
+def clear_data():
+    """Clear all data (for testing/reset)"""
+    try:
+        db.clear_all_data()
+        return {"message": "All data cleared successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error clearing data: {str(e)}")
 
 
 if __name__ == "__main__":
