@@ -143,39 +143,44 @@ class TradingDatabase:
 
         now = datetime.now().isoformat()
 
-        cursor.execute("""
-            INSERT INTO positions (
-                id, symbol, pair, direction, entry_time, exit_time, closed_at,
-                entry_price, exit_price, quantity, leverage, entry_fee, exit_fee,
-                fees, net_pnl, roi_percent, duration_seconds, status,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            position.get('id'),
-            position.get('symbol'),
-            position.get('pair'),
-            position.get('direction'),
-            position.get('entry_time'),
-            position.get('exit_time'),
-            position.get('closed_at'),
-            position.get('entry_price'),
-            position.get('exit_price'),
-            position.get('quantity'),
-            position.get('leverage', 1),
-            position.get('entry_fee', 0),
-            position.get('exit_fee', 0),
-            position.get('fees', 0),
-            position.get('net_pnl', 0),
-            position.get('roi_percent', 0),
-            position.get('duration_seconds', 0),
-            position.get('status', 'OPEN'),
-            now,
-            now
-        ))
+        try:
+            cursor.execute("""
+                INSERT INTO positions (
+                    id, symbol, pair, direction, entry_time, exit_time, closed_at,
+                    entry_price, exit_price, quantity, leverage, entry_fee, exit_fee,
+                    fees, net_pnl, roi_percent, duration_seconds, status,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                position.get('id'),
+                position.get('symbol'),
+                position.get('pair'),
+                position.get('direction'),
+                position.get('entry_time'),
+                position.get('exit_time'),
+                position.get('closed_at'),
+                position.get('entry_price'),
+                position.get('exit_price'),
+                position.get('quantity'),
+                position.get('leverage', 1),
+                position.get('entry_fee', 0),
+                position.get('exit_fee', 0),
+                position.get('fees', 0),
+                position.get('net_pnl', 0),
+                position.get('roi_percent', 0),
+                position.get('duration_seconds', 0),
+                position.get('status', 'OPEN'),
+                now,
+                now
+            ))
 
-        conn.commit()
-        conn.close()
-        return True
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.IntegrityError:
+            # Duplicate ID or constraint violation, skip
+            conn.close()
+            return False
 
     def get_all_positions(self, limit: int = None, offset: int = 0) -> List[Dict[str, Any]]:
         """Get all positions from database"""

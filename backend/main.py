@@ -9,6 +9,7 @@ from typing import List, Dict, Any
 import pandas as pd
 import io
 import os
+import hashlib
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -55,7 +56,6 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
     # Group by Pair and track open positions
     open_positions = {}
-    position_id = 1
 
     for _, row in df.iterrows():
         if pd.isna(row[time_col]):
@@ -67,7 +67,14 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
         deal_price = float(row.get('DealPrice', 0))
         quantity = float(row.get('Quantity', 0))
         fee = abs(float(row.get('Fee', 0)))
-        realized_pnl = float(row.get('Realized PNL', '0.0000 USDT').split()[0])
+
+        # Handle Realized PNL - can be float or string with USDT suffix
+        pnl_value = row.get('Realized PNL', 0)
+        if isinstance(pnl_value, str):
+            realized_pnl = float(pnl_value.split()[0]) if pnl_value.strip() else 0
+        else:
+            realized_pnl = float(pnl_value) if not pd.isna(pnl_value) else 0
+
         time = row[time_col]
 
         if quantity == 0:
@@ -77,8 +84,11 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
         if 'Open Long' in trade_type:
             key = f"{pair}_LONG"
             if key not in open_positions:
+                # Generate unique ID using hash of key attributes
+                unique_str = f"{pair}_LONG_{time.isoformat()}_{deal_price}_{quantity}"
+                pos_id = hashlib.md5(unique_str.encode()).hexdigest()[:16]
                 open_positions[key] = {
-                    'id': f'POS_{position_id}',
+                    'id': pos_id,
                     'symbol': pair,
                     'pair': pair,
                     'direction': 'LONG',
@@ -89,7 +99,6 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
                     'leverage': int(leverage),
                     'total_quantity': quantity,
                 }
-                position_id += 1
             else:
                 # Adding to existing position (averaging)
                 pos = open_positions[key]
@@ -102,8 +111,11 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
         elif 'Open Short' in trade_type:
             key = f"{pair}_SHORT"
             if key not in open_positions:
+                # Generate unique ID using hash of key attributes
+                unique_str = f"{pair}_SHORT_{time.isoformat()}_{deal_price}_{quantity}"
+                pos_id = hashlib.md5(unique_str.encode()).hexdigest()[:16]
                 open_positions[key] = {
-                    'id': f'POS_{position_id}',
+                    'id': pos_id,
                     'symbol': pair,
                     'pair': pair,
                     'direction': 'SHORT',
@@ -114,7 +126,6 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
                     'leverage': int(leverage),
                     'total_quantity': quantity,
                 }
-                position_id += 1
             else:
                 # Adding to existing position (averaging)
                 pos = open_positions[key]
@@ -146,8 +157,13 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
                     net_pnl = position_value * (pnl_pct / 100) - fee
                     roi_percent = pnl_pct
 
+                # Generate unique ID for this closed position
+                closed_pos_str = f"{pair}_LONG_{pos['entry_time']}_{time.isoformat()}_{quantity}_{deal_price}"
+                closed_pos_id = hashlib.md5(closed_pos_str.encode()).hexdigest()[:16]
+
                 position = {
                     **pos,
+                    'id': closed_pos_id,  # Override with unique closed position ID
                     'exit_time': time.isoformat(),
                     'exit_price': deal_price,
                     'closed_at': time.isoformat(),
@@ -190,8 +206,13 @@ def parse_bingx_futures(df: pd.DataFrame) -> List[Dict[str, Any]]:
                     net_pnl = position_value * (pnl_pct / 100) - fee
                     roi_percent = pnl_pct
 
+                # Generate unique ID for this closed position
+                closed_pos_str = f"{pair}_SHORT_{pos['entry_time']}_{time.isoformat()}_{quantity}_{deal_price}"
+                closed_pos_id = hashlib.md5(closed_pos_str.encode()).hexdigest()[:16]
+
                 position = {
                     **pos,
+                    'id': closed_pos_id,  # Override with unique closed position ID
                     'exit_time': time.isoformat(),
                     'exit_price': deal_price,
                     'closed_at': time.isoformat(),
@@ -237,7 +258,6 @@ def parse_simple_csv(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
     # Simple position matching: match buys with sells
     open_positions = {}
-    position_id = 1
 
     for _, row in df.iterrows():
         symbol = row.get('Symbol', row.get('Pair', ''))
@@ -254,8 +274,11 @@ def parse_simple_csv(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
         if side in ['BUY', 'LONG']:
             if key not in open_positions:
+                # Generate unique ID based on trade characteristics
+                unique_str = f"{symbol}_LONG_{time.isoformat()}_{price}_{qty}"
+                pos_id = hashlib.md5(unique_str.encode()).hexdigest()[:16]
                 open_positions[key] = {
-                    'id': f'POS_{position_id}',
+                    'id': pos_id,
                     'symbol': symbol,
                     'pair': symbol,
                     'direction': 'LONG',
@@ -265,7 +288,6 @@ def parse_simple_csv(df: pd.DataFrame) -> List[Dict[str, Any]]:
                     'entry_fee': fee,
                     'leverage': 1,
                 }
-                position_id += 1
         elif side in ['SELL', 'SHORT']:
             if key in open_positions:
                 pos = open_positions[key]
