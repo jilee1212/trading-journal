@@ -47,15 +47,16 @@ export interface Stats {
   net_pnl: number;
   avg_win: number;
   avg_loss: number;
-  profit_factor: number;
-  max_drawdown: number;
-  sharpe_ratio: number;
   total_volume: number;
-  avg_leverage: number;
-  long_positions: number;
-  short_positions: number;
-  long_pnl: number;
-  short_pnl: number;
+  // Optional fields - may not be returned by backend yet
+  profit_factor?: number;
+  max_drawdown?: number;
+  sharpe_ratio?: number;
+  avg_leverage?: number;
+  long_positions?: number;
+  short_positions?: number;
+  long_pnl?: number;
+  short_pnl?: number;
 }
 
 export interface ChartData {

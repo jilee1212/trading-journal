@@ -20,7 +20,12 @@ app = FastAPI(title="Trading Journal API")
 # CORS middleware for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://*.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        # Add your Vercel production URL here after deployment
+        # Example: "https://trading-journal-yourname.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
