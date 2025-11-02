@@ -447,13 +447,31 @@ async def upload_file(file: UploadFile = File(...)):
         # Read file
         contents = await file.read()
 
-        # Determine file type and parse
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(contents))
-        elif file.filename.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(io.BytesIO(contents))
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported file type. Use CSV or Excel.")
+        # Determine file type and parse - try Excel first (BingX uses .csv extension for Excel files)
+        df = None
+
+        # Try Excel format first
+        try:
+            # Use openpyxl with data_only mode to avoid style parsing issues
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True, read_only=True)
+            df = pd.DataFrame(wb.active.values)
+            # Set first row as headers
+            df.columns = df.iloc[0]
+            df = df[1:]
+            df.reset_index(drop=True, inplace=True)
+        except Exception:
+            # If Excel fails, try CSV with multiple encodings
+            if file.filename.endswith('.csv'):
+                for encoding in ['utf-8', 'cp949', 'euc-kr', 'latin1']:
+                    try:
+                        df = pd.read_csv(io.BytesIO(contents), encoding=encoding)
+                        break
+                    except (UnicodeDecodeError, Exception):
+                        continue
+
+        if df is None:
+            raise HTTPException(status_code=400, detail="Could not read file. Unsupported format or encoding.")
 
         # Parse positions
         positions = parse_binance_csv(df)
@@ -535,11 +553,33 @@ async def scan_folder(folder_path: str = None):
                 continue
 
             try:
-                # Read and parse file
-                if filename.endswith('.csv'):
-                    df = pd.read_csv(file_path)
-                else:
-                    df = pd.read_excel(file_path)
+                # Read and parse file - try Excel first (BingX uses .csv extension for Excel files)
+                df = None
+
+                # Try Excel format first (BingX exports as Excel with .csv extension)
+                try:
+                    # Use openpyxl with data_only mode to avoid style parsing issues
+                    # Read file as bytes to bypass extension check
+                    import openpyxl
+                    with open(file_path, 'rb') as f:
+                        wb = openpyxl.load_workbook(f, data_only=True, read_only=True)
+                    df = pd.DataFrame(wb.active.values)
+                    # Set first row as headers
+                    df.columns = df.iloc[0]
+                    df = df[1:]
+                    df.reset_index(drop=True, inplace=True)
+                except Exception:
+                    # If Excel fails, try CSV with multiple encodings
+                    if filename.endswith('.csv'):
+                        for encoding in ['utf-8', 'cp949', 'euc-kr', 'latin1']:
+                            try:
+                                df = pd.read_csv(file_path, encoding=encoding)
+                                break
+                            except (UnicodeDecodeError, Exception):
+                                continue
+
+                if df is None:
+                    raise ValueError(f"Could not read file {filename}")
 
                 positions = parse_binance_csv(df)
 
